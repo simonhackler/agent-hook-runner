@@ -1,0 +1,14 @@
+name: repo-tests
+target: codex-stop
+fail_strategy: stop-first
+
+steps:
+  - id: run-tests
+    description: Run the repository test suite from the hook working directory
+    run: npm
+    args:
+      - test
+    cwd: "{{ cwd }}"
+    env:
+      XDG_CACHE_HOME: "{{ cwd }}/.cache"
+    on_error: Repository tests failed. Fix the test failures before continuing.

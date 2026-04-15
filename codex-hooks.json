@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$HOME/projects/agents-hook-runner\" agents-hook-runner \"$HOME/projects/agents-hook-runner/workflow.yaml\" --hook",
+            "statusMessage": "Running repository checks",
+            "timeout": 3600
+          }
+        ]
+      }
+    ]
+  }
+}
