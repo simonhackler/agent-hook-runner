@@ -341,8 +341,8 @@ def run_step(
             args=step_args,
             ok=False,
             returncode=1,
-            stdout=error.stdout.strip() if hook_mode and error.stdout else "",
-            stderr=error.stderr.strip() if hook_mode and error.stderr else "",
+            stdout=normalize_subprocess_output(error.stdout) if hook_mode else "",
+            stderr=normalize_subprocess_output(error.stderr) if hook_mode else "",
             on_error=str(step.get("on_error", f"Step '{step['id']}' failed.")),
             spawn_error="",
             timed_out=True,
@@ -395,6 +395,14 @@ def summarize_output(output: str) -> str:
 
     tail = "\n".join(lines[-MAX_LOG_LINES:])
     return f"[truncated to last {MAX_LOG_LINES} lines]\n{tail}"
+
+
+def normalize_subprocess_output(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    if isinstance(output, bytes):
+        return output.decode(errors="replace").strip()
+    return output.strip()
 
 
 def emit_hook_result(target: str, message: str) -> int:

@@ -1,14 +1,37 @@
-name: repo-tests
+name: repo-quality
 target: codex-stop
 fail_strategy: stop-first
 
 steps:
-  - id: run-tests
-    description: Run the repository test suite from the hook working directory
-    run: npm
+  - id: pyright
+    description: Run pyright against the repository
+    run: uv
     args:
-      - test
+      - run
+      - --project
+      - "{{ cwd }}"
+      - pyright
     cwd: "{{ cwd }}"
-    env:
-      XDG_CACHE_HOME: "{{ cwd }}/.cache"
-    on_error: Repository tests failed. Fix the test failures before continuing.
+    on_error: Pyright reported type errors. Fix them before continuing.
+  - id: ruff
+    description: Run ruff against the repository
+    run: uv
+    args:
+      - run
+      - --project
+      - "{{ cwd }}"
+      - ruff
+      - check
+    cwd: "{{ cwd }}"
+    on_error: Ruff reported lint errors. Fix them before continuing.
+  - id: pytest
+    description: Run pytest against the repository
+    run: uv
+    args:
+      - run
+      - --project
+      - "{{ cwd }}"
+      - pytest
+      - -q
+    cwd: "{{ cwd }}"
+    on_error: Pytest reported failing tests. Fix them before continuing.

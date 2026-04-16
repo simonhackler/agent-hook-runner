@@ -1,0 +1,12 @@
+name: failing-hook
+target: codex-stop
+fail_strategy: stop-first
+
+steps:
+  - id: fail
+    description: Intentionally fail the hook
+    run: __PYTHON_EXECUTABLE__
+    args:
+      - -c
+      - "import sys;sys.stderr.write('boom'+chr(10));raise SystemExit(7)"
+    on_error: The hook failed.

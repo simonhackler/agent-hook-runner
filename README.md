@@ -6,8 +6,9 @@ repository checks.
 ## Files
 
 - `src/agents_hook_runner/`: packaged hook runner with CLI entry point
-- `workflow.yaml`: example workflow that runs `npm test` in the hook working directory
+- `workflow.yaml`: example workflow that runs `pyright`, `ruff check`, and `pytest` in the hook working directory
 - `codex-hooks.json`: example Codex `Stop` hook config pointing at this project
+- `.codex/`: live Codex hook configuration for this repository
 
 ## Run locally
 
@@ -25,5 +26,10 @@ captures child output, and emits one final block response when a step fails.
 Example Codex `Stop` hook command:
 
 ```bash
-uv run --project "$HOME/projects/agents-hook-runner" agents-hook-runner "$HOME/projects/agents-hook-runner/workflow.yaml" --hook
+uv run --project "$(git rev-parse --show-toplevel)" agents-hook-runner "$(git rev-parse --show-toplevel)/workflow.yaml" --hook
 ```
+
+## Repository hook
+
+This repository includes a live Codex hook config under `.codex/` that enables
+hooks and runs the packaged CLI on `Stop`.

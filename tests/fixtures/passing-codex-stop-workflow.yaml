@@ -1,0 +1,11 @@
+name: passing-hook
+target: codex-stop
+fail_strategy: stop-first
+
+steps:
+  - id: pass
+    description: Intentionally pass the hook
+    run: __PYTHON_EXECUTABLE__
+    args:
+      - -c
+      - "raise SystemExit(0)"

@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "uv run --project \"$(git rev-parse --show-toplevel)\" agents-hook-runner \"$(git rev-parse --show-toplevel)/workflow.yaml\" --hook",
-            "statusMessage": "Running pyright, ruff, and pytest",
+            "statusMessage": "Running pyright and ruff",
             "timeout": 3600
           }
         ]
