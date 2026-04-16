@@ -12,6 +12,7 @@ from typing import Any
 
 TEMPLATE_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 MAX_LOG_LINES = 40
+YamlTokens = list[tuple[int, str]]
 
 
 class WorkflowError(Exception):
@@ -73,8 +74,8 @@ def parse_scalar(value: str) -> Any:
     return value
 
 
-def tokenize_yaml(text: str) -> list[tuple[int, str]]:
-    tokens: list[tuple[int, str]] = []
+def tokenize_yaml(text: str) -> YamlTokens:
+    tokens: YamlTokens = []
 
     for raw_line in text.splitlines():
         if not raw_line.strip():
@@ -107,7 +108,7 @@ def split_key_value(line: str) -> tuple[str, str | None]:
     return key, value
 
 
-def parse_yaml_node(tokens: list[tuple[int, str]], start: int, indent: int) -> tuple[Any, int]:
+def parse_yaml_node(tokens: YamlTokens, start: int, indent: int) -> tuple[Any, int]:
     if start >= len(tokens):
         raise WorkflowError("Unexpected end of YAML input")
 
@@ -123,7 +124,20 @@ def parse_yaml_node(tokens: list[tuple[int, str]], start: int, indent: int) -> t
     return parse_yaml_mapping(tokens, start, indent)
 
 
-def parse_yaml_list(tokens: list[tuple[int, str]], start: int, indent: int) -> tuple[list[Any], int]:
+def parse_nested_yaml_value(
+    tokens: YamlTokens,
+    index: int,
+    *,
+    parent_indent: int,
+    nested_indent: int,
+) -> tuple[Any, int]:
+    if index < len(tokens) and tokens[index][0] > parent_indent:
+        return parse_yaml_node(tokens, index, nested_indent)
+
+    return None, index
+
+
+def parse_yaml_list(tokens: YamlTokens, start: int, indent: int) -> tuple[list[Any], int]:
     items: list[Any] = []
     index = start
 
@@ -138,11 +152,12 @@ def parse_yaml_list(tokens: list[tuple[int, str]], start: int, indent: int) -> t
         index += 1
 
         if not item_text:
-            if index >= len(tokens) or tokens[index][0] <= indent:
-                items.append(None)
-                continue
-
-            nested, index = parse_yaml_node(tokens, index, indent + 2)
+            nested, index = parse_nested_yaml_value(
+                tokens,
+                index,
+                parent_indent=indent,
+                nested_indent=indent + 2,
+            )
             items.append(nested)
             continue
 
@@ -151,11 +166,12 @@ def parse_yaml_list(tokens: list[tuple[int, str]], start: int, indent: int) -> t
             item: dict[str, Any] = {}
 
             if value is None:
-                if index < len(tokens) and tokens[index][0] > indent:
-                    nested, index = parse_yaml_node(tokens, index, indent + 4)
-                    item[key] = nested
-                else:
-                    item[key] = None
+                item[key], index = parse_nested_yaml_value(
+                    tokens,
+                    index,
+                    parent_indent=indent,
+                    nested_indent=indent + 4,
+                )
             else:
                 item[key] = parse_scalar(value)
 
@@ -175,11 +191,12 @@ def parse_yaml_list(tokens: list[tuple[int, str]], start: int, indent: int) -> t
                 child_key, child_value = split_key_value(child_line)
                 index += 1
                 if child_value is None:
-                    if index < len(tokens) and tokens[index][0] > child_indent:
-                        nested, index = parse_yaml_node(tokens, index, child_indent + 2)
-                        item[child_key] = nested
-                    else:
-                        item[child_key] = None
+                    item[child_key], index = parse_nested_yaml_value(
+                        tokens,
+                        index,
+                        parent_indent=child_indent,
+                        nested_indent=child_indent + 2,
+                    )
                 else:
                     item[child_key] = parse_scalar(child_value)
 
@@ -191,7 +208,7 @@ def parse_yaml_list(tokens: list[tuple[int, str]], start: int, indent: int) -> t
     return items, index
 
 
-def parse_yaml_mapping(tokens: list[tuple[int, str]], start: int, indent: int) -> tuple[dict[str, Any], int]:
+def parse_yaml_mapping(tokens: YamlTokens, start: int, indent: int) -> tuple[dict[str, Any], int]:
     mapping: dict[str, Any] = {}
     index = start
 
@@ -206,11 +223,12 @@ def parse_yaml_mapping(tokens: list[tuple[int, str]], start: int, indent: int) -
         index += 1
 
         if value is None:
-            if index < len(tokens) and tokens[index][0] > current_indent:
-                nested, index = parse_yaml_node(tokens, index, current_indent + 2)
-                mapping[key] = nested
-            else:
-                mapping[key] = None
+            mapping[key], index = parse_nested_yaml_value(
+                tokens,
+                index,
+                parent_indent=current_indent,
+                nested_indent=current_indent + 2,
+            )
         else:
             mapping[key] = parse_scalar(value)
 
@@ -298,6 +316,33 @@ def to_absolute_cwd(cwd_value: str | None, base_cwd: str) -> str:
     return str(Path(base_cwd, cwd_value).resolve())
 
 
+def build_step_result(
+    step: dict[str, Any],
+    run_command: str,
+    step_args: list[str],
+    *,
+    ok: bool,
+    returncode: int,
+    stdout: str = "",
+    stderr: str = "",
+    spawn_error: str = "",
+    timed_out: bool = False,
+) -> StepResult:
+    return StepResult(
+        step_id=str(step["id"]),
+        description=str(step.get("description", "")),
+        run=run_command,
+        args=step_args,
+        ok=ok,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        on_error=str(step.get("on_error", f"Step '{step['id']}' failed.")),
+        spawn_error=spawn_error,
+        timed_out=timed_out,
+    )
+
+
 def run_step(
     step: dict[str, Any],
     hook_input: dict[str, Any],
@@ -320,46 +365,34 @@ def run_step(
             timeout=timeout,
             check=False,
         )
-        return StepResult(
-            step_id=str(step["id"]),
-            description=str(step.get("description", "")),
-            run=run_command,
-            args=step_args,
+        return build_step_result(
+            step,
+            run_command,
+            step_args,
             ok=(completed.returncode == 0),
             returncode=completed.returncode,
             stdout=completed.stdout.strip() if hook_mode and completed.stdout else "",
             stderr=completed.stderr.strip() if hook_mode and completed.stderr else "",
-            on_error=str(step.get("on_error", f"Step '{step['id']}' failed.")),
-            spawn_error="",
-            timed_out=False,
         )
     except subprocess.TimeoutExpired as error:
-        return StepResult(
-            step_id=str(step["id"]),
-            description=str(step.get("description", "")),
-            run=run_command,
-            args=step_args,
+        return build_step_result(
+            step,
+            run_command,
+            step_args,
             ok=False,
             returncode=1,
             stdout=normalize_subprocess_output(error.stdout) if hook_mode else "",
             stderr=normalize_subprocess_output(error.stderr) if hook_mode else "",
-            on_error=str(step.get("on_error", f"Step '{step['id']}' failed.")),
-            spawn_error="",
             timed_out=True,
         )
     except OSError as error:
-        return StepResult(
-            step_id=str(step["id"]),
-            description=str(step.get("description", "")),
-            run=run_command,
-            args=step_args,
+        return build_step_result(
+            step,
+            run_command,
+            step_args,
             ok=False,
             returncode=1,
-            stdout="",
-            stderr="",
-            on_error=str(step.get("on_error", f"Step '{step['id']}' failed.")),
             spawn_error=str(error),
-            timed_out=False,
         )
 
 
@@ -443,17 +476,27 @@ def parse_args(argv: list[str]) -> tuple[str, bool]:
     return workflow_path, hook_mode
 
 
+def build_hook_input(
+    workflow_path: str,
+    hook_mode: bool,
+    base_cwd: str,
+) -> dict[str, Any]:
+    hook_input = {
+        "cwd": base_cwd,
+        "workflow_path": workflow_path,
+        "workflow_dir": str(Path(workflow_path).parent),
+    }
+    if hook_mode:
+        hook_input.update(read_hook_input())
+    return hook_input
+
+
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv
     workflow_path, hook_mode = parse_args(args)
     workflow = load_workflow(workflow_path)
     base_cwd = os.getcwd()
-    hook_input = {
-        "cwd": base_cwd,
-        "workflow_path": workflow_path,
-        "workflow_dir": str(Path(workflow_path).parent),
-        **(read_hook_input() if hook_mode else {}),
-    }
+    hook_input = build_hook_input(workflow_path, hook_mode, base_cwd)
 
     results: list[StepResult] = []
 
