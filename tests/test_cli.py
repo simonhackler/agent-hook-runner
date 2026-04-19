@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from agents_hook_runner.cli import main
+from agents_hook_runner.cli import load_workflow, main
 
 
 def test_hook_mode_emits_block_json_for_failing_codex_stop_step(
@@ -65,3 +65,30 @@ def test_hook_mode_returns_zero_without_output_for_passing_codex_stop_step(
     assert exit_code == 0
     assert captured.out == ""
     assert captured.err == ""
+
+
+def test_load_workflow_preserves_colons_in_list_scalars(tmp_path) -> None:
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        """
+name: colon-args
+steps:
+  - id: build
+    run: npm
+    args:
+      - run
+      - build:server
+      - registry.example.com/app:latest
+      - "quoted:value"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    workflow = load_workflow(str(workflow_path))
+
+    assert workflow["steps"][0]["args"] == [
+        "run",
+        "build:server",
+        "registry.example.com/app:latest",
+        "quoted:value",
+    ]

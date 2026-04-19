@@ -91,13 +91,30 @@ def tokenize_yaml(text: str) -> YamlTokens:
     return tokens
 
 
+def find_mapping_separator(line: str) -> int | None:
+    in_single = False
+    in_double = False
+
+    for index, char in enumerate(line):
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif char == ":" and not in_single and not in_double:
+            next_index = index + 1
+            if next_index == len(line) or line[next_index].isspace():
+                return index
+
+    return None
+
+
 def split_key_value(line: str) -> tuple[str, str | None]:
-    if ":" not in line:
+    separator_index = find_mapping_separator(line)
+    if separator_index is None:
         raise WorkflowError(f"Invalid YAML mapping line: {line}")
 
-    key, value = line.split(":", 1)
-    key = key.strip()
-    value = value.strip()
+    key = line[:separator_index].strip()
+    value = line[separator_index + 1 :].strip()
 
     if not key:
         raise WorkflowError(f"Invalid YAML key in line: {line}")
@@ -161,7 +178,7 @@ def parse_yaml_list(tokens: YamlTokens, start: int, indent: int) -> tuple[list[A
             items.append(nested)
             continue
 
-        if ":" in item_text:
+        if find_mapping_separator(item_text) is not None:
             key, value = split_key_value(item_text)
             item: dict[str, Any] = {}
 
